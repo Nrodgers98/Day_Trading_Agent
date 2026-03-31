@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────
+# Backtest-specific overrides
+# ─────────────────────────────────────────────────────────
+
+trading:
+  mode: backtest
+
+backtest:
+  start_date: "2023-01-01"
+  end_date: "2025-12-31"
+  initial_capital: 100_000.0
+  commission_per_share: 0.0
+  slippage_bps: 5
+  walk_forward:
+    train_days: 252
+    validate_days: 63
+    step_days: 21
+
+# Use a fixed universe for reproducible backtests
+universe:
+  base: custom                       # backtests always use a fixed list
+  custom_symbols:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - META
+    - NVDA
+    - TSLA
+    - JPM
+    - V
+    - UNH
+  filters:
+    min_price: 5.0
+    max_price: 1500.0
+    min_avg_volume: 500_000
+    require_tradable: true
+    require_easy_to_borrow: true

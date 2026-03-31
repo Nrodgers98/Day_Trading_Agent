@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────
+# Day Trading Agent — Default Configuration
+# ─────────────────────────────────────────────────────────
+
+trading:
+  mode: paper                        # paper | live
+  enable_live: false                  # safety gate for live trading
+  enable_shorting: false
+  enable_fractional_shares: false
+
+universe:
+  base: scan                         # custom | scan | hybrid
+  custom_symbols: []                 # used when base=custom or hybrid
+  filters:
+    min_price: 5.0
+    max_price: 500.0
+    min_avg_volume: 1_000_000        # 20-day avg daily volume
+    require_tradable: true
+    require_easy_to_borrow: true     # for short candidates
+
+# Market scanner — finds stocks to trade dynamically
+# Only used when universe.base is "scan" or "hybrid"
+scanner:
+  enabled: true
+  rescan_interval_minutes: 15        # how often to re-scan during the day
+  premarket_scan: true               # run a scan before market open
+  scan_top_n: 50                     # how many most-active/movers to pull
+  scan_gainers_losers: true          # include top gainers and losers
+  max_symbols: 30                    # cap the final watchlist size
+  min_gap_pct: 2.0                   # minimum gap % to be interesting
+  min_relative_volume: 1.5           # minimum RVOL vs 20-day avg
+
+session:
+  timezone: US/Eastern
+  market_open: "09:30"
+  market_close: "16:00"
+  enable_premarket: false
+  enable_afterhours: false
+  opening_guard_minutes: 5           # no-trade window after open
+  closing_guard_minutes: 15          # no new trades before close
+  eod_flatten: true                  # close all positions before close
+  eod_flatten_time: "15:45"         # time to start flattening
+
+strategy:
+  name: momentum_breakout
+  timeframe: 5m                      # primary candle timeframe
+  confirmation_timeframe: 15m        # higher TF for trend filter
+  lookback_bars: 20                  # N-bar high/low breakout period
+  volume_surge_ratio: 1.5            # volume / avg_volume threshold
+  rsi_long_range: [40, 70]
+  rsi_short_range: [30, 60]
+  ml_confidence_threshold: 0.60
+  cooldown_bars: 6                   # bars to wait after a trade
+  max_trades_per_day: 20
+  max_hold_minutes: 120
+
+sentiment:
+  enabled: true
+  provider: finbert                    # none | finbert
+  news_source: alpaca_news             # alpaca_news | newsapi
+  model_name: ProsusAI/finbert
+  lookback_minutes: 120
+  max_headlines: 12
+  cache_ttl_seconds: 300
+  positive_threshold: 0.25
+  negative_threshold: -0.25
+  confidence_boost: 0.05
+
+risk:
+  max_risk_per_trade_pct: 0.0045      # 0.5% of equity
+  max_daily_drawdown_pct: 0.02       # 2% of starting equity
+  max_gross_exposure_pct: 0.80       # 80% of equity
+  max_concurrent_positions: 10
+  max_symbol_concentration_pct: 0.15 # 15% of equity per symbol
+  daily_trade_cap: 30
+  stop_loss_atr_mult: 1.5
+  take_profit_atr_mult: 2.5
+  trailing_stop_atr_mult: 1.0
+  enable_trailing_stop: true
+  spread_guard_pct: 0.001            # max 0.1% spread
+  slippage_bps: 5                    # assumed slippage in bps
+
+alpaca:
+  api_timeout_seconds: 10
+  max_retries: 3
+  retry_base_delay: 1.0
+  retry_max_delay: 30.0
+  rate_limit_calls_per_minute: 200
+  use_websocket: false               # REST polling by default
+
+backtest:
+  start_date: "2023-01-01"
+  end_date: "2025-12-31"
+  initial_capital: 100_000.0
+  commission_per_share: 0.0          # Alpaca is commission-free
+  slippage_bps: 5
+  walk_forward:
+    train_days: 252                  # ~1 year
+    validate_days: 63                # ~3 months
+    step_days: 21                    # ~1 month
+
+monitoring:
+  log_level: INFO
+  log_dir: logs
+  audit_log: true
+  daily_report: true
+  report_format: json                # json | csv | markdown
+  alert_on_drawdown: true
+  alert_on_order_failure: true
+  alert_on_data_gap: true
+  max_consecutive_failures: 3
+
+improvement:
+  enabled: false
+  autonomy_mode: manual              # manual | autonomous_nonprod | autonomous
+  optimize_for: risk_adjusted_return # risk_adjusted_return | raw_pnl | stability
+  analysis_lookback_days: 7
+  evaluation_timeout_seconds: 1800
+  proposal_cooldown_minutes: 60
+  max_proposals_per_run: 3
+  candidate_dir: output/improvement
+  rag_top_k: 6
+  rag_max_chunk_lines: 60
+  rag_chunk_overlap_lines: 10
+  allow_code_patches: false
+  evaluate_with_backtest: false
+  dry_run: true
+  observe_modes: [paper]              # [paper], [live], or [paper, live]
+  gates:
+    max_drawdown_worsen_pct: 0.2
+    min_sharpe_delta: 0.05
+    max_trades_delta_pct: 0.30
+    min_profit_factor_delta: 0.0
+    min_canary_sessions: 3
+    rollback_underperformance_sessions: 2
