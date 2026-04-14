@@ -26,6 +26,10 @@ Data Ingestion → Feature Pipeline → Signal Engine → Risk Manager → Execu
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system diagram.
 
+## Docker and deployment
+
+For a reproducible runtime (local or cloud), use the production image and [docker-compose.yml](docker-compose.yml). Hosting decisions, secrets, log volumes, and example commands are documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Dev Containers (same repo, `development` build target) live under [.devcontainer](.devcontainer/).
+
 ## Quick Start
 
 ### 1. Install
@@ -259,6 +263,7 @@ If `sentiment.news_source` is `newsapi`, set `NEWS_API_KEY` in `.env`.
 - [Architecture](docs/ARCHITECTURE.md) — System design and data flow
 - [Runbook](docs/RUNBOOK.md) — Operations guide and troubleshooting
 - [Go-Live Checklist](docs/GO_LIVE_CHECKLIST.md) — Pre-deployment validation steps
+- [Deployment](docs/DEPLOYMENT.md) — Docker, compose, secrets, and persistence
 
 ## License
 

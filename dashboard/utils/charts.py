@@ -247,6 +247,58 @@ def trades_by_hour_chart(trades_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def cumulative_daily_pnl_chart(daily_df: pd.DataFrame) -> go.Figure:
+    """Cumulative realized PnL from per-day ``total_pnl`` rows (session reports)."""
+    if daily_df.empty or "cumulative_pnl" not in daily_df.columns:
+        return go.Figure()
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=daily_df["date"],
+        y=daily_df["cumulative_pnl"],
+        mode="lines",
+        name="Cumulative PnL",
+        line=dict(color=COLORS["green"], width=2),
+        fill="tozeroy",
+        fillcolor="rgba(0,212,170,0.08)",
+    ))
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Cumulative Daily PnL (reports)",
+        xaxis_title="Session date",
+        yaxis_title="Cumulative PnL ($)",
+        height=320,
+        margin=dict(l=60, r=20, t=50, b=40),
+        yaxis=dict(tickprefix="$", tickformat=",.0f"),
+    )
+    return fig
+
+
+def rolling_daily_pnl_chart(daily_df: pd.DataFrame) -> go.Figure:
+    """7-session rolling sum of reported daily PnL."""
+    if daily_df.empty or "rolling_7d_pnl" not in daily_df.columns:
+        return go.Figure()
+
+    colors = [COLORS["green"] if v >= 0 else COLORS["red"] for v in daily_df["rolling_7d_pnl"]]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=daily_df["date"],
+        y=daily_df["rolling_7d_pnl"],
+        marker_color=colors,
+        name="Rolling 7d PnL",
+    ))
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Rolling 7-Session PnL",
+        xaxis_title="Session date",
+        yaxis_title="PnL ($)",
+        height=300,
+        margin=dict(l=60, r=20, t=50, b=40),
+        yaxis=dict(tickprefix="$", tickformat=",.0f"),
+    )
+    return fig
+
+
 def cumulative_pnl_chart(trades_df: pd.DataFrame) -> go.Figure:
     """Cumulative PnL line chart from trade history."""
     if trades_df.empty or "pnl" not in trades_df.columns:

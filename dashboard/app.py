@@ -69,6 +69,7 @@ Use the sidebar to navigate between pages:
 - **Trades** — Browse trade history and audit logs
 - **Risk** — Monitor risk metrics and rejection patterns
 - **Config** — View current configuration settings
+- **Trading desk** — Session PnL, stitched equity, cumulative progress, LLM desk review
 """)
 
 if runs:

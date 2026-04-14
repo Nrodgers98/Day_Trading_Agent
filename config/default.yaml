@@ -105,6 +105,7 @@ monitoring:
   audit_log: true
   daily_report: true
   report_format: json                # json | csv | markdown
+  report_max_equity_points: 500       # max intraday equity samples stored per JSON report
   alert_on_drawdown: true
   alert_on_order_failure: true
   alert_on_data_gap: true
@@ -126,6 +127,11 @@ improvement:
   evaluate_with_backtest: false
   dry_run: true
   observe_modes: [paper]              # [paper], [live], or [paper, live]
+  llm_advisor_enabled: false          # uses OPENAI_API_KEY or IMPROVEMENT_LLM_API_KEY
+  llm_api_base_url: http://127.0.0.1:11434/v1
+  llm_model: qwen2.5:7b
+  llm_max_tokens: 2000
+  llm_temperature: 0.2
   gates:
     max_drawdown_worsen_pct: 0.2
     min_sharpe_delta: 0.05

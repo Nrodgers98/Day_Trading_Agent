@@ -194,10 +194,18 @@ class MonitoringConfig(BaseModel):
     audit_log: bool = True
     daily_report: bool = True
     report_format: Literal["json", "csv", "markdown"] = "json"
+    report_max_equity_points: int = 500
     alert_on_drawdown: bool = True
     alert_on_order_failure: bool = True
     alert_on_data_gap: bool = True
     max_consecutive_failures: int = 3
+
+    @field_validator("report_max_equity_points")
+    @classmethod
+    def _report_equity_points_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("report_max_equity_points must be >= 1")
+        return v
 
 
 class ImprovementGatesConfig(BaseModel):
@@ -226,6 +234,11 @@ class ImprovementConfig(BaseModel):
     dry_run: bool = True
     observe_modes: list[Literal["paper", "live"]] = Field(default_factory=lambda: ["paper"])
     gates: ImprovementGatesConfig = Field(default_factory=ImprovementGatesConfig)
+    llm_advisor_enabled: bool = False
+    llm_api_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-4o-mini"
+    llm_max_tokens: int = 2000
+    llm_temperature: float = 0.2
 
     @field_validator(
         "analysis_lookback_days",
@@ -234,11 +247,19 @@ class ImprovementConfig(BaseModel):
         "max_proposals_per_run",
         "rag_top_k",
         "rag_max_chunk_lines",
+        "llm_max_tokens",
     )
     @classmethod
     def _must_be_positive(cls, v: int) -> int:
         if v <= 0:
             raise ValueError("improvement numeric values must be > 0")
+        return v
+
+    @field_validator("llm_temperature")
+    @classmethod
+    def _llm_temperature_bounds(cls, v: float) -> float:
+        if v < 0.0 or v > 2.0:
+            raise ValueError("llm_temperature must be within [0.0, 2.0]")
         return v
 
     @field_validator("rag_chunk_overlap_lines")

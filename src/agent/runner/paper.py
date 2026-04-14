@@ -65,6 +65,10 @@ class PaperRunner(BaseRunner):
         self._trades_today: list[dict[str, Any]] = []
         self._equity_curve: list[dict[str, Any]] = []
         self._running: bool = False
+        # Calendar date (session tz) for which _trades_today / _equity_curve apply; used for per-day reports.
+        self._active_report_date: str | None = None
+        # Session date (YYYY-MM-DD) for which we already ran EOD flatten (once per day).
+        self._eod_flatten_done_session_date: str | None = None
 
     # ── setup ─────────────────────────────────────────────────────────
 
@@ -151,12 +155,19 @@ class PaperRunner(BaseRunner):
                 logger.exception("Pre-market scan failed — will retry on first cycle")
 
         while self._running:
+            self._maybe_rollover_daily_report()
+
             cycle_start = asyncio.get_event_loop().time()
 
             if not self._is_market_open():
                 logger.debug("Market closed — sleeping")
                 await asyncio.sleep(self._loop_interval_s)
                 continue
+
+            # Flatten must run even after closing_guard ends the "new trades" window,
+            # otherwise we never reach the code that was below _check_session() and
+            # positions can carry overnight unintentionally.
+            await self._maybe_eod_flatten()
 
             if not self._check_session():
                 logger.debug("Outside guarded session window — sleeping")
@@ -176,9 +187,6 @@ class PaperRunner(BaseRunner):
                 self._alerts.check_order_failures(
                     self._risk_mgr.breaker.consecutive_failures,
                 )
-
-            if self._should_flatten():
-                await self._flatten_positions()
 
             self._cycle_count += 1
             if self._cycle_count % _RECONCILE_EVERY_N_CYCLES == 0:
@@ -385,6 +393,20 @@ class PaperRunner(BaseRunner):
 
     # ── EOD flatten ───────────────────────────────────────────────────
 
+    async def _maybe_eod_flatten(self) -> None:
+        """Close all positions once per session day after eod_flatten_time while RTH is open."""
+        if not self._config.session.eod_flatten or self._eod_flatten_time is None:
+            return
+        if not self._should_flatten():
+            return
+        today = self._session_date_str()
+        if self._eod_flatten_done_session_date == today:
+            return
+        if self._exec_client is None:
+            return
+        await self._flatten_positions()
+        self._eod_flatten_done_session_date = today
+
     async def _flatten_positions(self) -> None:
         assert self._exec_client is not None
         logger.info("EOD flatten triggered — closing all positions")
@@ -434,6 +456,59 @@ class PaperRunner(BaseRunner):
 
         return self._scanner.cached_symbols
 
+    # ── daily reports (session calendar) ──────────────────────────────
+
+    def _session_date_str(self) -> str:
+        return self._now_eastern().strftime("%Y-%m-%d")
+
+    def _maybe_rollover_daily_report(self) -> None:
+        """When session calendar day advances, persist the prior day and reset buffers."""
+        if self._report_gen is None or not self._config.monitoring.daily_report:
+            return
+
+        current = self._session_date_str()
+        if self._active_report_date is None:
+            self._active_report_date = current
+            return
+        if current == self._active_report_date:
+            return
+
+        completed_date = self._active_report_date
+        trades_snap = list(self._trades_today)
+        equity_snap = list(self._equity_curve)
+        self._trades_today.clear()
+        self._equity_curve.clear()
+        self._active_report_date = current
+
+        try:
+            self._write_daily_report(completed_date, trades=trades_snap, equity_curve=equity_snap)
+        except Exception:
+            logger.exception(
+                "Error generating daily report for completed session date %s",
+                completed_date,
+            )
+
+    def _write_daily_report(
+        self,
+        report_date: str,
+        *,
+        trades: list[dict[str, Any]] | None = None,
+        equity_curve: list[dict[str, Any]] | None = None,
+    ) -> str:
+        assert self._report_gen is not None
+        t = self._trades_today if trades is None else trades
+        e = self._equity_curve if equity_curve is None else equity_curve
+        return self._report_gen.generate(
+            report_date,
+            t,
+            e,
+            {
+                "log_dir": self._config.monitoring.log_dir,
+                "report_format": self._config.monitoring.report_format,
+                "report_max_equity_points": self._config.monitoring.report_max_equity_points,
+            },
+        )
+
     # ── shutdown ──────────────────────────────────────────────────────
 
     async def shutdown(self) -> None:
@@ -446,7 +521,7 @@ class PaperRunner(BaseRunner):
             except Exception:
                 logger.exception("Error cancelling orders during shutdown")
 
-            if self._should_flatten():
+            if self._config.session.eod_flatten:
                 try:
                     await self._exec_client.close_all_positions()
                 except Exception:
@@ -454,16 +529,12 @@ class PaperRunner(BaseRunner):
 
         if self._report_gen is not None:
             try:
-                today = datetime.now(tz=self._tz).strftime("%Y-%m-%d")
-                report_path = self._report_gen.generate(
-                    today,
-                    self._trades_today,
-                    self._equity_curve,
-                    {
-                        "log_dir": self._config.monitoring.log_dir,
-                        "report_format": self._config.monitoring.report_format,
-                    },
-                )
+                if self._config.monitoring.daily_report:
+                    report_date = self._active_report_date or self._session_date_str()
+                else:
+                    # Single end-of-run report (legacy) when daily reports are disabled.
+                    report_date = self._session_date_str()
+                report_path = self._write_daily_report(report_date)
                 logger.info("Daily report saved to %s", report_path)
             except Exception:
                 logger.exception("Error generating daily report")

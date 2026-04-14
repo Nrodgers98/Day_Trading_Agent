@@ -30,11 +30,15 @@ class DailyReportGenerator:
         ext = {"json": "json", "csv": "csv", "markdown": "md"}.get(report_format, "json")
         output_path = report_dir / f"report_{date}.{ext}"
 
-        content = {
-            "json": self._to_json,
-            "csv": self._to_csv,
-            "markdown": self._to_markdown,
-        }.get(report_format, self._to_json)(summary, trades)
+        max_pts = int(config.get("report_max_equity_points", 500))
+        equity_for_json = self._downsample_equity_curve(equity_curve, max_pts)
+
+        if ext == "json":
+            content = self._to_json(summary, trades, equity_for_json)
+        elif ext == "csv":
+            content = self._to_csv(summary, trades)
+        else:
+            content = self._to_markdown(summary, trades)
 
         output_path.write_text(content, encoding="utf-8")
         return str(output_path.resolve())
@@ -74,8 +78,33 @@ class DailyReportGenerator:
         }
 
     @staticmethod
-    def _to_json(summary: dict[str, Any], trades: list[dict[str, Any]]) -> str:
-        return json.dumps({"summary": summary, "trades": trades}, indent=2, default=str)
+    def _downsample_equity_curve(
+        equity_curve: list[dict[str, Any]],
+        max_points: int,
+    ) -> list[dict[str, Any]]:
+        """Uniform index sampling; always keeps first and last points when possible."""
+        if not equity_curve or max_points <= 0:
+            return []
+        if len(equity_curve) <= max_points:
+            return [dict(p) for p in equity_curve]
+        n = len(equity_curve)
+        if max_points == 1:
+            return [dict(equity_curve[-1])]
+        idxs = sorted(
+            {int(round(j * (n - 1) / (max_points - 1))) for j in range(max_points)},
+        )
+        return [dict(equity_curve[i]) for i in idxs]
+
+    @staticmethod
+    def _to_json(
+        summary: dict[str, Any],
+        trades: list[dict[str, Any]],
+        equity_curve: list[dict[str, Any]],
+    ) -> str:
+        payload: dict[str, Any] = {"summary": summary, "trades": trades}
+        if equity_curve:
+            payload["equity_curve"] = equity_curve
+        return json.dumps(payload, indent=2, default=str)
 
     @staticmethod
     def _to_csv(summary: dict[str, Any], trades: list[dict[str, Any]]) -> str:

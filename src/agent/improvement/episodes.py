@@ -6,16 +6,25 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from src.agent.improvement.models import FailurePattern, ImprovementEpisode
+from src.agent.monitoring.audit_ingest import collect_audit_summary_for_session_date
 
 
 class EpisodeDatasetBuilder:
     """Parses reports and runner logs into per-day episodes."""
 
-    def __init__(self, log_dir: str = "logs", observe_modes: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        log_dir: str = "logs",
+        observe_modes: list[str] | None = None,
+        *,
+        session_timezone: str = "US/Eastern",
+    ) -> None:
         self._log_dir = Path(log_dir)
         self._observe_modes = observe_modes or ["paper"]
+        self._session_tz = ZoneInfo(session_timezone)
 
     def build(self, lookback_days: int = 7) -> list[ImprovementEpisode]:
         reports = sorted((self._log_dir / "reports").glob("report_*.json"))[-lookback_days:]
@@ -24,9 +33,13 @@ class EpisodeDatasetBuilder:
 
         for report_path in reports:
             payload = self._read_json(report_path)
-            summary = payload.get("summary", {})
+            summary = dict(payload.get("summary", {}))
             trades = payload.get("trades", [])
             date = str(summary.get("date") or report_path.stem.replace("report_", ""))
+            audit_extra = collect_audit_summary_for_session_date(
+                self._log_dir, date, self._session_tz,
+            )
+            summary.update(audit_extra)
             episode = ImprovementEpisode(
                 date=date,
                 summary=summary,

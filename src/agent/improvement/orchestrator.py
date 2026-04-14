@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ from src.agent.config import AppConfig
 from src.agent.improvement.audit import ImprovementAuditLogger
 from src.agent.improvement.episodes import EpisodeDatasetBuilder
 from src.agent.improvement.evaluator import ImprovementEvaluator
+from src.agent.improvement.llm_advisor import ImprovementLLMAdvisor, merge_proposal_lists
 from src.agent.improvement.models import CandidateChange, CandidateEvaluation
 from src.agent.improvement.proposal import ProposalEngine
 from src.agent.improvement.rag import LocalRAGIndex
@@ -32,6 +34,7 @@ class ImprovementOrchestrator:
         self._episodes = EpisodeDatasetBuilder(
             config.monitoring.log_dir,
             observe_modes=config.improvement.observe_modes,
+            session_timezone=config.session.timezone,
         )
         self._proposer = ProposalEngine(config)
         self._evaluator = ImprovementEvaluator()
@@ -67,9 +70,22 @@ class ImprovementOrchestrator:
 
         query = self._build_query(episodes)
         evidence = self._rag.retrieve(query, top_k=self._config.improvement.rag_top_k)
-        proposals = self._proposer.propose(episodes, evidence)
+        heuristic = self._proposer.propose(episodes, evidence)
+        llm_proposals: list[CandidateChange] = []
+        if self._config.improvement.llm_advisor_enabled:
+            advisor = ImprovementLLMAdvisor(self._config)
+            llm_proposals, llm_meta = await asyncio.to_thread(
+                advisor.propose_from_episodes, episodes, evidence,
+            )
+            self._audit.log("llm_advisor_response", llm_meta)
+
+        proposals = merge_proposal_lists(
+            heuristic,
+            llm_proposals,
+            max_total=self._config.improvement.max_proposals_per_run,
+        )
         if not proposals:
-            logger.info("No proposals generated from current episodes.")
+            logger.info("No proposals after heuristics and optional LLM merge.")
             return []
 
         outcomes: list[dict[str, Any]] = []
@@ -214,9 +230,16 @@ class ImprovementOrchestrator:
     def _build_query(episodes: list[Any]) -> str:
         latest = episodes[-1]
         fail_summary = "; ".join(f"{f.message} (x{f.count})" for f in latest.failures[:5]) or "no failures"
+        audit_bits = [
+            f"{k}={v}"
+            for k, v in latest.summary.items()
+            if str(k).startswith("audit_") and v is not None
+        ]
+        audit_summary = "; ".join(audit_bits) if audit_bits else "no audit aggregates"
         return (
             f"Optimize risk-adjusted return. Latest date={latest.date}. "
             f"summary={latest.summary}. failures={fail_summary}. "
+            f"audit_aggregates={audit_summary}. "
             "Find likely code/config points for safer improvement."
         )
 

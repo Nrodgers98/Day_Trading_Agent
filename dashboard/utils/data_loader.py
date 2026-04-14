@@ -200,6 +200,79 @@ def list_daily_reports() -> list[dict[str, Any]]:
     return reports
 
 
+def daily_reports_summary_dataframe(
+    reports: list[dict[str, Any]] | None = None,
+) -> pd.DataFrame:
+    """One row per report date (chronological), from ``summary`` blocks."""
+    items = reports if reports is not None else list_daily_reports()
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        date_str = str(item.get("date", ""))
+        data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+        row: dict[str, Any] = {
+            "date": pd.to_datetime(date_str, errors="coerce"),
+            "total_pnl": float(summary.get("total_pnl", 0.0) or 0.0),
+            "trade_count": int(summary.get("trade_count", 0) or 0),
+            "win_rate": float(summary.get("win_rate", 0.0) or 0.0),
+            "max_drawdown_pct": float(summary.get("max_drawdown_pct", 0.0) or 0.0),
+            "win_count": int(summary.get("win_count", 0) or 0),
+            "loss_count": int(summary.get("loss_count", 0) or 0),
+        }
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    df["cumulative_pnl"] = df["total_pnl"].cumsum()
+    df["rolling_7d_pnl"] = df["total_pnl"].rolling(7, min_periods=1).sum()
+    df["rolling_7d_win_rate"] = df["win_rate"].rolling(7, min_periods=1).mean()
+    return df
+
+
+def trades_concat_from_reports(
+    reports: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """All ``trades`` entries from JSON reports (order not guaranteed)."""
+    items = reports if reports is not None else list_daily_reports()
+    out: list[dict[str, Any]] = []
+    for item in items:
+        data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        trades = data.get("trades")
+        if isinstance(trades, list):
+            out.extend(t for t in trades if isinstance(t, dict))
+    return out
+
+
+def stitched_equity_curve_from_reports(
+    reports: list[dict[str, Any]] | None = None,
+) -> pd.DataFrame:
+    """Concatenate ``equity_curve`` arrays from JSON reports; sorted by timestamp."""
+    items = reports if reports is not None else list_daily_reports()
+    points: list[dict[str, Any]] = []
+    for item in items:
+        data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        curve = data.get("equity_curve")
+        if not isinstance(curve, list):
+            continue
+        for pt in curve:
+            if not isinstance(pt, dict):
+                continue
+            ts = pt.get("timestamp")
+            if not ts:
+                continue
+            try:
+                eq = float(pt.get("equity", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                eq = 0.0
+            points.append({"timestamp": ts, "equity": eq})
+    df = pd.DataFrame(points)
+    if df.empty:
+        return pd.DataFrame(columns=["timestamp", "equity"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df.sort_values("timestamp").reset_index(drop=True)
+
+
 # ── Application log ──────────────────────────────────────────────────
 
 
@@ -244,6 +317,20 @@ def load_yaml_config(name: str = "default.yaml") -> dict[str, Any]:
         return {}
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def save_yaml_config(name: str, data: dict[str, Any]) -> None:
+    """Write a config dict to ``config/<name>``. Overwrites the file."""
+    path = CONFIG_DIR / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(
+            data,
+            f,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+        )
 
 
 def list_config_files() -> list[str]:
